@@ -1,3 +1,4 @@
+
 ## Kubernetes使用kubeadm部署高可用集群
 **1. Kubeadm原理简述**  
 Kubeadm工具的出发点很简单，就是尽可能简单的部署一个生产可用的Kubernetes集群。实际也确实很简单，只需要两条命令：
@@ -46,3 +47,15 @@ Etcd独立部署方式：
 
 **5. 部署环境**  
 由于机器资源不足，下面的部署测试，只会以混布的方式部署一个1*haproxy，3*master，2*node，共5台机器的集群，实际上由于etcd选举要过半数，至少要3台master节点才能构成高可用，在生产环境，还是要根据实际情况，尽量选择风险低的拓扑结构。
+
+ - 机器：
+	
+
+ - 系统版本：
+```shell
+[root@k8s-master01 ~]# cat /etc/redhat-release 
+CentOS Linux release 7.7.1908 (Core)
+[root@k8s-master01 ~]# uname -r
+3.10.0-1062.4.3.el7.x86_64
+```
+ - 集群版本
