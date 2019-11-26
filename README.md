@@ -21,7 +21,10 @@ $ kubeadm join <Master 节点的 IP 和端口 >
 
 **简单来说，kubeadm做的事就是把大部分组件都容器化，通过StaticPod方式运行，并自动化了大部分的集群配置及认证等工作，简单几步即可搭建一个可用Kubernetes的集群。**
 
-<font size=10>你在哪里 </font>
+<font size=8>你在哪里 </font>
+<font size=12>你在哪里 </font>
+<font size=1>你在哪里 </font>
+<font size=6>你在哪里 </font>
 
 
 <font size=3>这里有个问题，为什么不把kubelet组件也容器化呢，是因为，kubelet在配置容器网络、管理容器数据卷时，都需要直接操作宿主机，而如果现在 kubelet 本身就运行在一个容器里，那么直接操作宿主机就会变得很麻烦。比如，容器内要做NFS的挂载，需要kubelet先在宿主机执行mount挂载NFS。如果kubelet运行在容器中问题来了，如果kubectl运行在容器中，要操作宿主机的Mount Namespace是非常复杂的。所以，kubeadm选择把kubelet运行直接运行在宿主机中，使用容器部署其他Kubernetes组件。所以，Kubeadm部署要安装的组件有Kubeadm、kubelet、kubectl三个。
