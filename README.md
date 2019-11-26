@@ -301,6 +301,13 @@ kube-scheduler-k8s-master02            1/1     Running   1          20h   192.16
 kube-scheduler-k8s-master03            1/1     Running   0          19h   192.168.111.130   k8s-master03   <none>           <none>
 ```
 
+**18. 部署仪表盘WebUI**  
+```shell
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta6/aio/deploy/recommended.yaml
+```
+
+
+
 
 
 参考官方文档:  
