@@ -309,7 +309,7 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-b
 
 
 
-参考官方文档:  
+参考文档:  
 [http://docs.kubernetes.org.cn/459.html](http://docs.kubernetes.org.cn/459.html)  
 [https://kubernetes.io/zh/docs/setup/independent/create-cluster-kubeadm/](https://kubernetes.io/zh/docs/setup/independent/create-cluster-kubeadm/)  
 [https://segmentfault.com/a/1190000018741112](https://segmentfault.com/a/1190000018741112)  
