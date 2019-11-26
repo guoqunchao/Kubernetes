@@ -265,3 +265,14 @@ kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documen
 ```shell
 kubectl get node
 ```
+**17. 查看系统组件**  
+```shell
+kubectl get pod -nkube-system -o wide
+```
+
+
+
+参考官方文档:
+[http://docs.kubernetes.org.cn/459.html](http://docs.kubernetes.org.cn/459.html)
+[https://kubernetes.io/zh/docs/setup/independent/create-cluster-kubeadm/](https://kubernetes.io/zh/docs/setup/independent/create-cluster-kubeadm/)
+[https://segmentfault.com/a/1190000018741112](https://segmentfault.com/a/1190000018741112)
