@@ -27,6 +27,7 @@ $ kubeadm join <Master 节点的 IP 和端口 >
 
 **4. Kubeadm部署一个高可用集群**
 ![在这里插入图片描述](https://img-blog.csdnimg.cn/20191126112453987.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3F1bmNoYW9fQmxvZw==,size_16,color_FFFFFF,t_70)
+
 另外一种方式是，使用独立的Etcd集群，不与Master节点混布：![在这里插入图片描述](https://img-blog.csdnimg.cn/20191126112531509.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3F1bmNoYW9fQmxvZw==,size_16,color_FFFFFF,t_70)
 
 两种方式的相同之处在于都提供了控制平面的冗余，实现了集群高可以用，区别在于：
