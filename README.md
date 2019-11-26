@@ -78,7 +78,6 @@ kubeadm version: &version.Info{Major:"1", Minor:"16", GitVersion:"v1.16.3", GitC
 REPOSITORY                           TAG                 IMAGE ID            CREATED             SIZE
 k8s.gcr.io/kube-apiserver            v1.16.3             df60c7526a3d        12 days ago         217MB
 k8s.gcr.io/kube-proxy                v1.16.3             9b65a0f78b09        12 days ago         86.1MB
-inkwhite/kube-controller-manager     v1.16.3             bb16442bcd94        12 days ago         163MB
 k8s.gcr.io/kube-controller-manager   v1.16.3             bb16442bcd94        12 days ago         163MB
 k8s.gcr.io/kube-scheduler            v1.16.3             98fecf43a54f        12 days ago         87.3MB
 k8s.gcr.io/etcd                      3.3.15-0            b2756210eeab        2 months ago        247MB
