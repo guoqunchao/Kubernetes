@@ -45,11 +45,18 @@ Etcd独立部署方式：
  - 部署相对复杂，要独立管理etcd集群和和master集群。
  - 解耦了控制平面和Etcd，集群风险小健壮性强，单独挂了一台master或etcd对集群的影响很小。
 
-**5. 部署环境**  
+**5. 部署准备**    
 由于机器资源不足，下面的部署测试，只会以混布的方式部署一个1*haproxy，3*master，2*node，共5台机器的集群，实际上由于etcd选举要过半数，至少要3台master节点才能构成高可用，在生产环境，还是要根据实际情况，尽量选择风险低的拓扑结构。
 
  - 机器：
-	
+```shell
+192.168.111.133 k8s-api-proxy 
+192.168.111.128 k8s-master01
+192.168.111.129 k8s-master02
+192.168.111.130 k8s-master03
+192.168.111.131 k8s-node01
+192.168.111.132 k8s-node02
+```
 
  - 系统版本：
 ```shell
@@ -59,3 +66,202 @@ CentOS Linux release 7.7.1908 (Core)
 3.10.0-1062.4.3.el7.x86_64
 ```
  - 集群版本
+```shell
+[root@k8s-master02 ~]# docker version
+Client: Docker Engine - Community
+ Version:           19.03.5
+[root@k8s-master02 ~]# rpm -qa kubelet*
+kubelet-1.16.3-0.x86_64
+[root@k8s-master02 ~]# kubeadm version
+kubeadm version: &version.Info{Major:"1", Minor:"16", GitVersion:"v1.16.3", GitCommit:"b3cbbae08ec52a7fc73d334838e18d17e8512749", GitTreeState:"clean", BuildDate:"2019-11-13T11:20:25Z", GoVersion:"go1.12.12", Compiler:"gc", Platform:"linux/amd64"}
+[root@k8s-master02 kubernetes]# docker images
+REPOSITORY                           TAG                 IMAGE ID            CREATED             SIZE
+k8s.gcr.io/kube-apiserver            v1.16.3             df60c7526a3d        12 days ago         217MB
+k8s.gcr.io/kube-proxy                v1.16.3             9b65a0f78b09        12 days ago         86.1MB
+inkwhite/kube-controller-manager     v1.16.3             bb16442bcd94        12 days ago         163MB
+k8s.gcr.io/kube-controller-manager   v1.16.3             bb16442bcd94        12 days ago         163MB
+k8s.gcr.io/kube-scheduler            v1.16.3             98fecf43a54f        12 days ago         87.3MB
+k8s.gcr.io/etcd                      3.3.15-0            b2756210eeab        2 months ago        247MB
+k8s.gcr.io/coredns                   1.6.2               bf261d157914        3 months ago        44.1MB
+k8s.gcr.io/pause                     3.1                 da86e6ba6ca1        23 months ago       742kB
+```
+**6. 配置主机**    
+
+ - 关闭Selinux
+```shell
+$ setenforce  0
+$ sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+```
+ - 关闭防火墙
+```shell
+$ systemctl stop firewalld
+$ systemctl disable firewalld
+```
+ - 关闭Swap
+```shell
+$ swapoff -a
+$ sed -i s#`egrep "swap" /etc/fstab |awk '{print $1}'`#"\#`egrep "swap" /etc/fstab |awk '{print $1}'`"# /etc/fstab
+```
+ - 修改内核参数
+```shell
+# 修改下面内核参数，否则请求数据经过iptables的路由可能有问题
+cat <<EOF >  /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+EOF
+sysctl --system
+```
+
+ - 添加hosts
+```shell
+192.168.111.133 k8s-api-proxy
+192.168.111.128 k8s-master01
+192.168.111.129 k8s-master02
+192.168.111.130 k8s-master03
+192.168.111.131 k8s-node01
+192.168.111.132 k8s-node02
+```
+**7. 安装docker**  
+除了k8s-api-proxy之外所有节点执行；
+```shell
+yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine #卸载旧版docker
+yum install -y yum-utils device-mapper-persistent-data lvm2  #安装依赖包
+yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo #添加docker源
+yum install docker-ce docker-ce-cli containerd.io -y #install dokcer engine-community
+yum list docker-ce --showduplicates | sort -r #查看安装特定版本【可选】
+systemctl start docker && systemctl enable docker #启动docker并开机自启动
+```
+
+**8. 安装kubectl**
+除了k8s-api-proxy之外所有节点执行；
+```shell
+curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl #下载命令
+chmod +x ./kubectl #使kubectl二进制可执行
+mv ./kubectl /usr/local/bin/kubectl #将二进制文件移动到PATH中
+```
+
+**9. 安装kubeadm和kubelet** 
+```shell
+cat <<EOF > /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64/
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
+EOF
+yum install -y kubelet kubeadm
+systemctl enable kubelet && systemctl start kubelet
+```
+
+**10. 安装api-haproxy**  
+```shell
+yum install haproxy -y
+cat << EOF > /etc/haproxy/haproxy.cfg
+global
+    log         127.0.0.1 local2
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    maxconn     4000
+    user        haproxy
+    group       haproxy
+    daemon
+
+defaults
+    mode                    tcp
+    log                     global
+    retries                 3
+    timeout connect         10s
+    timeout client          1m
+    timeout server          1m
+
+frontend kube-apiserver
+    bind *:6443 # 指定前端端口
+    mode tcp
+    default_backend master
+
+backend master # 指定后端机器及端口，负载方式为轮询
+    balance roundrobin
+    server k8s-master01  192.168.111.128:6443 check maxconn 2000
+    server k8s-master02  192.168.111.129:6443 check maxconn 2000
+    server k8s-master03  192.168.111.130:6443 check maxconn 2000
+EOF
+
+systemctl enable haproxy
+systemctl start haproxy
+
+```
+**11. 先拉取镜像**  
+由于需要下载gcr官方源，无法直接下载；这里做中转。
+```shell
+docker pull inkwhite/pause:3.1
+docker pull inkwhite/coredns:1.6.2
+docker pull inkwhite/etcd:3.3.15-0
+docker pull inkwhite/kube-scheduler:v1.16.3
+docker pull inkwhite/kube-controller-manager:v1.16.3
+docker pull inkwhite/kube-apiserver:v1.16.3
+docker pull inkwhite/kube-proxy:v1.16.3
+
+docker tag inkwhite/pause:3.1 k8s.gcr.io/pause:3.1
+docker tag inkwhite/coredns:1.6.2 k8s.gcr.io/coredns:1.6.2
+docker tag inkwhite/etcd:3.3.15-0 k8s.gcr.io/etcd:3.3.15-0
+docker tag inkwhite/kube-scheduler:v1.16.3 k8s.gcr.io/kube-scheduler:v1.16.3
+docker tag inkwhite/kube-controller-manager:v1.16.3 k8s.gcr.io/kube-controller-manager:v1.16.3
+docker tag inkwhite/kube-apiserver:v1.16.3 k8s.gcr.io/kube-apiserver:v1.16.3
+docker tag inkwhite/kube-proxy:v1.16.3 k8s.gcr.io/kube-proxy:v1.16.3
+```
+**12. master节点初始化**  
+这里的--control-plane-endpoint 填写api-proxy主机的IP；执行完保留输出信息；
+```shell
+kubeadm init --control-plane-endpoint "192.168.111.133:6443" --pod-network-cidr=10.100.0.0/16 --service-cidr=10.101.0.0/16 --upload-certs
+
+# Your Kubernetes control-plane has initialized successfully!
+#
+# To start using your cluster, you need to run the following as a regular user:
+#
+#   mkdir -p $HOME/.kube
+#   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+#   sudo chown $(id -u):$(id -g) $HOME/.kube/config
+#
+# You should now deploy a pod network to the cluster.
+# Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+#   https://kubernetes.io/docs/concepts/cluster-administration/addons/
+#
+# You can now join any number of the control-plane node running the following command on each as root:
+#
+#   kubeadm join 192.168.111.133:6443 --token 2ioekx.gtygik5gvqdym370 \
+#     --discovery-token-ca-cert-hash sha256:a38c6defced0e9901f35dd69e36419feb9598d5b7d8f8890418375ee3088e130 \
+#     --control-plane --certificate-key 8f5cfa993eacc368511941f0ac32239c9c50891e5c8e3f163fc8f26cd3e0af8b
+#
+# Please note that the certificate-key gives access to cluster sensitive data, keep it secret!
+# As a safeguard, uploaded-certs will be deleted in two hours; If necessary, you can use
+# "kubeadm init phase upload-certs --upload-certs" to reload certs afterward.
+#
+# Then you can join any number of worker nodes by running the following on each as root:
+#
+# kubeadm join 192.168.111.133:6443 --token 2ioekx.gtygik5gvqdym370 \
+#     --discovery-token-ca-cert-hash sha256:a38c6defced0e9901f35dd69e36419feb9598d5b7d8f8890418375ee3088e130
+```
+
+**13. 添加新的master节点**  
+```shell
+kubeadm join 192.168.111.133:6443 --token 2ioekx.gtygik5gvqdym370 \
+  --discovery-token-ca-cert-hash sha256:a38c6defced0e9901f35dd69e36419feb9598d5b7d8f8890418375ee3088e130 \
+  --control-plane --certificate-key 8f5cfa993eacc368511941f0ac32239c9c50891e5c8e3f163fc8f26cd3e0af8b
+```
+
+**14. 添加新的node节点**
+```shell
+kubeadm join 192.168.111.133:6443 --token 2ioekx.gtygik5gvqdym370 \
+    --discovery-token-ca-cert-hash sha256:a38c6defced0e9901f35dd69e36419feb9598d5b7d8f8890418375ee3088e130
+```
+**15. 部署Flannel网络**
+```shell
+# 注意： - 为了使Flannel正常工作，执行kubeadm init命令时需要增加--pod-network-cidr=10.244.0.0/16参数。-Flannel适用于amd64，arm，arm64和ppc64le上工作，但使用除amd64平台得其他平台，你必须手动下载并替换amd64。
+kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+```
+**16. 查看所有节点状态**  
+```shell
+kubectl get node
+```
