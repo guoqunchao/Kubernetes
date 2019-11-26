@@ -1,5 +1,6 @@
 ## Kubernetes使用kubeadm部署高可用集群
 **1. Kubeadm原理简述**
+
 Kubeadm工具的出发点很简单，就是尽可能简单的部署一个生产可用的Kubernetes集群。实际也确实很简单，只需要两条命令：
 ```shell
 # 创建一个 Master 节点
