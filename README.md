@@ -305,7 +305,13 @@ kube-scheduler-k8s-master03            1/1     Running   0          19h   192.16
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta6/aio/deploy/recommended.yaml
 ```
 
-
+**19. 解决flannel下Kubernetes pod及容器无法跨主机互通问题**    
+```shell
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -F
+iptables -L -n
+```
 
 
 
