@@ -305,7 +305,16 @@ kube-scheduler-k8s-master03            1/1     Running   0          19h   192.16
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta6/aio/deploy/recommended.yaml
 ```
 
-**19. 解决flannel下Kubernetes pod及容器无法跨主机互通问题**    
+**19. 创建以token方式登录dashborad的用户**   
+```shell
+kubectl create serviceaccount dashboard-admin -n kube-system #创建用于登录dashborad的serviceaccount账号
+ubectl create clusterrolebinding dashboard-cluster-admin --clusterrole=cluster-admin --serviceaccount=kube-system:dashboard-admin   #创建一个clusterrolebingding，将名称为cluster-admin的clusterrole绑定到我们刚刚从的serviceaccount上，名称空间和sa使用:作为间隔
+kubectl get secret -n kube-system #创建完成后系统会自动创建一个secret，名称以serviceaccount名称开头
+kubectl describe secret dashboard-admin-token-pbsj9 -n kube-system  #使用describe查看该secret的详细信息，主要是token一段
+```
+
+
+**20. 解决flannel下Kubernetes pod及容器无法跨主机互通问题**    
 ```shell
 iptables -P INPUT ACCEPT
 iptables -P FORWARD ACCEPT
