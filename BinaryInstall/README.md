@@ -27,7 +27,4 @@ ssh-copy-id root@k8s-master02
 ssh-copy-id root@k8s-master03  
 ssh-copy-id root@k8s-node01  
 ssh-copy-id root@k8s-node02  
-<<<<<<< HEAD
 ```
-=======
->>>>>>> origin/master
