@@ -276,14 +276,14 @@ k8s-node02     Ready    <none>   31m   v1.16.3
 NAME                                   READY   STATUS    RESTARTS   AGE   IP                NODE           NOMINATED NODE   READINESS GATES
 coredns-5644d7b6d9-g228d               1/1     Running   0          20h   10.100.1.2        k8s-master02   <none>           <none>
 coredns-5644d7b6d9-pnv5f               1/1     Running   0          20h   10.100.1.3        k8s-master02   <none>           <none>
-etcd-k8s-master01                      1/1     Running   11         20h   192.168.111.128   k8s-master01   <none>           <none>
+etcd-k8s-master01                      1/1     Running   0          20h   192.168.111.128   k8s-master01   <none>           <none>
 etcd-k8s-master02                      1/1     Running   0          20h   192.168.111.129   k8s-master02   <none>           <none>
 etcd-k8s-master03                      1/1     Running   0          19h   192.168.111.130   k8s-master03   <none>           <none>
-kube-apiserver-k8s-master01            1/1     Running   58         20h   192.168.111.128   k8s-master01   <none>           <none>
-kube-apiserver-k8s-master02            1/1     Running   1          20h   192.168.111.129   k8s-master02   <none>           <none>
+kube-apiserver-k8s-master01            1/1     Running   0          20h   192.168.111.128   k8s-master01   <none>           <none>
+kube-apiserver-k8s-master02            1/1     Running   0          20h   192.168.111.129   k8s-master02   <none>           <none>
 kube-apiserver-k8s-master03            1/1     Running   0          19h   192.168.111.130   k8s-master03   <none>           <none>
-kube-controller-manager-k8s-master01   1/1     Running   4          20h   192.168.111.128   k8s-master01   <none>           <none>
-kube-controller-manager-k8s-master02   1/1     Running   1          20h   192.168.111.129   k8s-master02   <none>           <none>
+kube-controller-manager-k8s-master01   1/1     Running   0          20h   192.168.111.128   k8s-master01   <none>           <none>
+kube-controller-manager-k8s-master02   1/1     Running   0          20h   192.168.111.129   k8s-master02   <none>           <none>
 kube-controller-manager-k8s-master03   1/1     Running   0          19h   192.168.111.130   k8s-master03   <none>           <none>
 kube-flannel-ds-amd64-7xd8v            1/1     Running   0          28m   192.168.111.132   k8s-node02     <none>           <none>
 kube-flannel-ds-amd64-8hk4m            1/1     Running   0          28m   192.168.111.130   k8s-master03   <none>           <none>
@@ -295,8 +295,8 @@ kube-proxy-gqxzb                       1/1     Running   0          19h   192.16
 kube-proxy-pf55v                       1/1     Running   0          20h   192.168.111.129   k8s-master02   <none>           <none>
 kube-proxy-xtnw8                       1/1     Running   0          38m   192.168.111.131   k8s-node01     <none>           <none>
 kube-proxy-zd8wn                       1/1     Running   0          20h   192.168.111.128   k8s-master01   <none>           <none>
-kube-scheduler-k8s-master01            1/1     Running   4          20h   192.168.111.128   k8s-master01   <none>           <none>
-kube-scheduler-k8s-master02            1/1     Running   1          20h   192.168.111.129   k8s-master02   <none>           <none>
+kube-scheduler-k8s-master01            1/1     Running   0          20h   192.168.111.128   k8s-master01   <none>           <none>
+kube-scheduler-k8s-master02            1/1     Running   0          20h   192.168.111.129   k8s-master02   <none>           <none>
 kube-scheduler-k8s-master03            1/1     Running   0          19h   192.168.111.130   k8s-master03   <none>           <none>
 ```
 
