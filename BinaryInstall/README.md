@@ -51,3 +51,47 @@ sed -i '/ swap / s/^\(.*\)$/# \1/g' /etc/fstab
 setenforce 0
 sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
 ```
+
+- 设置系统参数
+```shell script
+cat > kubernetes.conf <<EOF
+  net.bridge.bridge-nf-call-iptables=1
+  net.bridge.bridge-nf-call-ip6tables=1
+  net.ipv4.ip_forward=1
+  net.ipv4.tcp_tw_recycle=0
+  vm.swappiness=0
+  vm.overcommit_memory=1
+  vm.panic_on_oom=0
+  fs.inotify.max_user_watches=89100
+  fs.file-max=52706963
+  fs.nr_open=52706963
+  net.ipv6.conf.all.disable_ipv6=1
+  net.netfilter.nf_conntrack_max=2310720
+EOF
+
+cp kubernetes.conf /etc/sysctl.d/kubernetes.conf
+```
+
+- 安装Docker
+```shell script
+yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine #卸载旧版docker
+yum install -y yum-utils device-mapper-persistent-data lvm2  #安装依赖包
+yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo #添加docker源
+yum install docker-ce docker-ce-cli containerd.io -y #install dokcer engine-community
+systemctl start docker && systemctl enable docker #启动docker并开机自启动
+yum list docker-ce --showduplicates | sort -r #查看安装特定版本【可选】
+```
+
+- 创建目录
+```shell script
+mkdir -p /opt/k8s/bin
+mkdir -p /opt/k8s/cert
+mkdir -p /opt/etcd/cert
+mkdir -p /opt/lib/etcd
+```
+
+- 检查系统内核和模块是否适合运行docker
+```shell script
+curl https://raw.githubusercontent.com/docker/docker/master/contrib/check-config.sh > check-config.sh
+```
+
