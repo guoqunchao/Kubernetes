@@ -441,7 +441,7 @@ get /coreos.com/network/config
 
 - 获取所有key和value
 ```shell script
-ETCDCTL_API=3 etcdctl
+ETCDCTL_API=3 etcdctl \
 --endpoints="https://192.168.111.128:2379,https://192.168.111.129:2379,https://192.168.111.130:2379" \
 --cacert=/opt/k8s/cert/ca.pem \
 --cert=/opt/flannel/cert/flanneld.pem \
@@ -494,16 +494,36 @@ defaults
     timeout client          1m
     timeout server          1m
 
-frontend kube-apiserver
-    bind *:8443 # 指定前端端口
-    mode tcp
-    default_backend master
+#frontend kube-apiserver
+#    bind *:8443 # 指定前端端口
+#    mode tcp
+#    default_backend master
+#
+#backend master # 指定后端机器及端口，负载方式为轮询
+#    balance roundrobin
+#    server k8s-master01  192.168.111.128:6443 check maxconn 2000
+#    server k8s-master02  192.168.111.129:6443 check maxconn 2000
+#    server k8s-master03  192.168.111.130:6443 check maxconn 2000
 
-backend master # 指定后端机器及端口，负载方式为轮询
-    balance roundrobin
-    server k8s-master01  192.168.111.128:8443 check maxconn 2000
-    server k8s-master02  192.168.111.129:8443 check maxconn 2000
-    server k8s-master03  192.168.111.130:8443 check maxconn 2000
+listen kube-master
+    bind 0.0.0.0:8443
+    mode tcp
+    option tcplog
+    balance source
+    server k8s-master01  192.168.111.128:6443 check maxconn 2000
+    server k8s-master02  192.168.111.129:6443 check maxconn 2000
+    server k8s-master03  192.168.111.130:6443 check maxconn 2000
+
+listen admin_stats
+    bind 0.0.0.0:10080
+    mode http
+    log 127.0.0.1 local0 err
+    stats refresh 30s
+    stats uri /status
+    stats realm welcome login\ Haproxy
+    stats auth admin:admin
+    stats hide-version
+    stats admin if TRUE
 EOF
 
 systemctl enable haproxy
@@ -511,8 +531,150 @@ systemctl start haproxy
 ```
 
 
-
 ##### 07.部署 master 节点之 kube-apiserver 组件
+- 创建 kubernetes 证书和私钥
+```shell script
+[root@k8s-master01 cert]# cd /opt/k8s/cert/
+[root@k8s-master01 cert]# vim kubernetes-csr.json
+{
+    "CN": "kubernetes",
+    "hosts": [
+        "127.0.0.1",
+        "192.168.111.128",
+        "192.168.111.129",
+        "192.168.111.130",
+        "192.168.10.10",
+        "kubernetes",
+        "kubernetes.default",
+        "kubernetes.default.svc",
+        "kubernetes.default.svc.cluster",
+        "kubernetes.default.svc.cluster.local"
+    ],
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [
+        {
+          "C": "CN",
+          "ST": "BeiJing",
+          "L": "BeiJing",
+          "O": "k8s",
+          "OU": "4Paradigm"
+        }
+    ]
+}
+
+```
+
+- 生成证书和私钥
+```shell script
+[root@k8s-master01 cert]# cfssl gencert -ca=/opt/k8s/cert/ca.pem \
+  -ca-key=/opt/k8s/cert/ca-key.pem \
+  -config=/opt/k8s/cert/ca-config.json \
+  -profile=kubernetes kubernetes-csr.json | cfssljson -bare kubernetes
+
+[root@k8s-master01 cert]# ls kubernetes*
+kubernetes.csr  kubernetes-csr.json  kubernetes-key.pem  kubernetes.pem
+```
+
+- 创建加密配置文件
+```shell script
+# 产生一个用来加密Etcd 的 Key:
+[root@k8s-master01 bin]# head -c 32 /dev/urandom | base64
+YmMwxm94RIG1PJoGnZWLnmrtne2YXyi76luqo5RV0Pw=
+# 注意：每台master节点需要用一样的 Key
+
+[root@k8s-master01 k8s]# vim /opt/k8s/encryption-config.yaml
+kind: EncryptionConfig
+apiVersion: v1
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: YmMwxm94RIG1PJoGnZWLnmrtne2YXyi76luqo5RV0Pw=
+      - identity: {}
+```
+
+- 将生成的证书和私钥文件、加密配置文件拷贝到master 节点的/opt/k8s目录下
+
+
+- 创建 kube-apiserver systemd unit 模板文件
+```shell script
+[root@k8s-master01 opt]# vim /etc/systemd/system/kube-apiserver.service
+[Unit]
+Description=Kubernetes API Server
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=network.target
+
+[Service]
+ExecStart=/opt/k8s/bin/kube-apiserver \
+--enable-admission-plugins=NamespaceLifecycle,NodeRestriction,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota \
+--anonymous-auth=false \
+--experimental-encryption-provider-config=/opt/k8s/encryption-config.yaml \
+--advertise-address=192.168.111.128 \  ##nodeip##
+--bind-address=192.168.111.128 \  ##nodeip##
+--insecure-port=0 \
+--authorization-mode=Node,RBAC \
+--runtime-config=api/all=true \
+--enable-bootstrap-token-auth \
+--service-cluster-ip-range=10.101.0.0/16 \ 
+--service-node-port-range=1-32767 \
+--tls-cert-file=/opt/k8s/cert/kubernetes.pem \
+--tls-private-key-file=/opt/k8s/cert/kubernetes-key.pem \
+--client-ca-file=/opt/k8s/cert/ca.pem \
+--kubelet-client-certificate=/opt/k8s/cert/kubernetes.pem \
+--kubelet-client-key=/opt/k8s/cert/kubernetes-key.pem \
+--service-account-key-file=/opt/k8s/cert/ca-key.pem \
+--etcd-cafile=/opt/k8s/cert/ca.pem \
+--etcd-certfile=/opt/k8s/cert/kubernetes.pem \
+--etcd-keyfile=/opt/k8s/cert/kubernetes-key.pem \
+--etcd-servers=https://192.168.111.128:2379,https://192.168.111.129:2379,https://192.168.111.130:2379 \
+--enable-swagger-ui=true \
+--allow-privileged=true \
+--apiserver-count=3 \
+--audit-log-maxage=30 \
+--audit-log-maxbackup=3 \
+--audit-log-maxsize=100 \
+--audit-log-path=/var/log/kube-apiserver-audit.log \
+--event-ttl=1h \
+--alsologtostderr=true \
+--logtostderr=false \
+--log-dir=/opt/log/kubernetes \
+--v=2
+Restart=on-failure
+RestartSec=5
+Type=notify
+User=root
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
+- 打印kube-apiserver写入etcd的数据
+```shell script
+ETCDCTL_API=3 etcdctl \
+--endpoints="https://192.168.111.128:2379,https://192.168.111.129:2379,https://192.168.111.130:2379" \
+--cacert=/opt/k8s/cert/ca.pem \
+--cert=/opt/flannel/cert/flanneld.pem \
+--key=/opt/flannel/cert/flanneld-key.pem \
+--prefix --keys-only=false get /
+```
+
+- 检查集群信息
+```shell script
+[root@k8s-master01 opt]# kubectl cluster-info
+Kubernetes master is running at https://192.168.111.128:8443
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+
+```
+
 ##### 08.部署 master 节点之 kube-controller-manager 组件
 ##### 09.部署 master 节点之 kube-scheduler 组件
 ##### 10.部署 worker 节点之 docker 组件
