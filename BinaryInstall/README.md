@@ -811,9 +811,9 @@ Documentation=https://github.com/GoogleCloudPlatform/kubernetes
 
 [Service]
 ExecStart=/opt/k8s/bin/kube-controller-manager \
---port=0 \
---secure-port=10252 \
---bind-address=127.0.0.1 \
+#--port=0 \
+#--secure-port=10252 \
+#--bind-address=127.0.0.1 \
 #--kubeconfig=/opt/k8s/kube-controller-manager.kubeconfig \
 --kubeconfig=/root/.kube/kube-controller-manager.kubeconfig \
 --service-cluster-ip-range=10.101.0.0/16 \
