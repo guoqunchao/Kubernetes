@@ -1037,6 +1037,81 @@ metadata:
 ```
 
 ##### 10.部署 worker 节点之 docker 组件
+```shell script
+yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine #卸载旧版docker
+yum install -y yum-utils device-mapper-persistent-data lvm2  #安装依赖包
+yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo #添加docker源
+yum install docker-ce docker-ce-cli containerd.io -y #install dokcer engine-community
+yum list docker-ce --showduplicates | sort -r #查看安装特定版本【可选】
+systemctl start docker && systemctl enable docker #启动docker并开机自启动
+
+[root@k8s-node02 flannel]# vim /usr/lib/systemd/system/docker.service
+[Unit]
+Description=Docker Application Container Engine
+Documentation=https://docs.docker.com
+BindsTo=containerd.service
+After=network-online.target firewalld.service containerd.service
+Wants=network-online.target
+Requires=docker.socket
+
+[Service]
+Type=notify
+# the default is not to use systemd for cgroups because the delegate issues still
+# exists and systemd currently does not support the cgroup feature set required
+# for containers run by docker
+#ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+Environment="PATH=/opt/k8s/bin:/bin:/sbin:/usr/bin:/usr/sbin"
+EnvironmentFile=-/run/flannel/docker
+ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock --log-level=error $DOCKER_NETWORK_OPTIONS
+ExecReload=/bin/kill -s HUP $MAINPID
+TimeoutSec=0
+RestartSec=2
+Restart=always
+
+# Note that StartLimit* options were moved from "Service" to "Unit" in systemd 229.
+# Both the old, and new location are accepted by systemd 229 and up, so using the old location
+# to make them work for either version of systemd.
+StartLimitBurst=3
+
+# Note that StartLimitInterval was renamed to StartLimitIntervalSec in systemd 230.
+# Both the old, and new name are accepted by systemd 230 and up, so using the old name to make
+# this option work for either version of systemd.
+StartLimitInterval=60s
+
+# Having non-zero Limit*s causes performance problems due to accounting overhead
+# in the kernel. We recommend using cgroups to do container-local accounting.
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+
+# Comment TasksMax if your systemd version does not support it.
+# Only systemd 226 and above support this option.
+TasksMax=infinity
+
+# set delegate yes so that systemd does not reset the cgroups of docker containers
+Delegate=yes
+
+# kill only the docker process, not all processes in the cgroup
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+
+
+[root@k8s-node02 flannel]# cat docker subnet.env 
+DOCKER_OPT_BIP="--bip=10.100.14.1/24"
+DOCKER_OPT_IPMASQ="--ip-masq=true"
+DOCKER_OPT_MTU="--mtu=1450"
+DOCKER_NETWORK_OPTIONS=" --bip=10.100.14.1/24 --ip-masq=true --mtu=1450"
+FLANNEL_NETWORK=10.100.0.0/16
+FLANNEL_SUBNET=10.100.14.1/24
+FLANNEL_MTU=1450
+FLANNEL_IPMASQ=false
+```
+
+
+
+
 ##### 11.部署 worker 节点之 kubelet 组件
 ##### 12.部署 worker 节点之 kube-proxy 组件
 ##### 13.验证集群功能 完毕！
