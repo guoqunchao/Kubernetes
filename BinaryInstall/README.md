@@ -889,8 +889,153 @@ metadata:
   uid: 285fcb7d-983b-4a7f-9c00-ad01ca9b4194
 
 ```
+#
 
 ##### 09.部署 master 节点之 kube-scheduler 组件
+#　该集群包含 3 个节点，启动后将通过竞争选举机制产生一个 leader 节点，其它节点为阻塞状态。当 leader 节点不可用后，剩余节点将再次进行选举产生新的 leader 节点，从而保证服务的可用性。
+- 创建 kube-scheduler 证书和私钥
+```yaml
+[root@k8s-master01 cert]# cd /opt/k8s/cert/
+[root@k8s-master01 cert]# vim kube-scheduler-csr.json
+{
+    "CN": "system:kube-scheduler",
+    "hosts": [
+      "127.0.0.1",
+      "192.168.111.128",
+      "192.168.111.129",
+      "192.168.111.130"
+    ],
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "names": [
+      {
+        "C": "CN",
+        "ST": "BeiJing",
+        "L": "BeiJing",
+        "O": "system:kube-scheduler",
+        "OU": "4Paradigm"
+      }
+    ]
+}
+```
+
+- 生成证书和私钥
+```shell script
+[root@k8s-master01 cert]# cfssl gencert -ca=/opt/k8s/cert/ca.pem \
+> -ca-key=/opt/k8s/cert/ca-key.pem \
+> -config=/opt/k8s/cert/ca-config.json \
+> -profile=kubernetes kube-scheduler-csr.json | cfssljson -bare kube-scheduler
+2019/12/25 16:36:17 [INFO] generate received request
+2019/12/25 16:36:17 [INFO] received CSR
+2019/12/25 16:36:17 [INFO] generating key: rsa-2048
+2019/12/25 16:36:18 [INFO] encoded CSR
+2019/12/25 16:36:18 [INFO] signed certificate with serial number 116837778336782174005556793697093783379336558872
+2019/12/25 16:36:18 [WARNING] This certificate lacks a "hosts" field. This makes it unsuitable for
+websites. For more information see the Baseline Requirements for the Issuance and Management
+of Publicly-Trusted Certificates, v.1.1.6, from the CA/Browser Forum (https://cabforum.org);
+specifically, section 10.2.3 ("Information Requirements").
+[root@k8s-master01 cert]# ls *schedu*
+kube-scheduler.csr  kube-scheduler-csr.json  kube-scheduler-key.pem  kube-scheduler.pem
+```
+
+- 创建kube-scheduler.kubeconfig文件
+```shell script
+[root@k8s-master01 cert]# kubectl config set-cluster kubernetes \
+> --certificate-authority=/opt/k8s/cert/ca.pem \
+> --embed-certs=true \
+> --server=https://192.168.111.128:8443 \
+> --kubeconfig=/root/.kube/kube-scheduler.kubeconfig
+Cluster "kubernetes" set.
+
+[root@k8s-master01 cert]# kubectl config set-credentials system:kube-scheduler \
+> --client-certificate=/opt/k8s/cert/kube-scheduler.pem \
+> --client-key=/opt/k8s/cert/kube-scheduler-key.pem \
+> --embed-certs=true \
+> --kubeconfig=/root/.kube/kube-scheduler.kubeconfig
+User "system:kube-scheduler" set.
+
+[root@k8s-master01 cert]# kubectl config set-context system:kube-scheduler@kubernetes \
+> --cluster=kubernetes \
+> --user=system:kube-scheduler \
+> --kubeconfig=/root/.kube/kube-scheduler.kubeconfig
+Context "system:kube-scheduler@kubernetes" created.
+
+[root@k8s-master01 cert]# kubectl config use-context system:kube-scheduler@kubernetes --kubeconfig=/root/.kube/kube-scheduler.kubeconfig
+Switched to context "system:kube-scheduler@kubernetes".
+
+[root@k8s-master01 cert]# ls /root/.kube/kube-scheduler.kubeconfig
+/root/.kube/kube-scheduler.kubeconfig
+
+[root@k8s-master01 cert]# kubectl config view --kubeconfig=/root/.kube/kube-scheduler.kubeconfig
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://192.168.111.128:8443
+  name: kubernetes
+contexts:
+- context:
+    cluster: kubernetes
+    user: system:kube-scheduler
+  name: system:kube-scheduler@kubernetes
+current-context: system:kube-scheduler@kubernetes
+kind: Config
+preferences: {}
+users:
+- name: system:kube-scheduler
+  user:
+    client-certificate-data: REDACTED
+    client-key-data: REDACTED
+
+```
+
+
+- 创建kube-scheduler systemd unit 文件
+```shell script
+[root@k8s-master01 .kube]# vim /etc/systemd/system/kube-scheduler.service
+[Unit]
+Description=Kubernetes Scheduler
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=kube-apiserver.service
+Requires=kube-apiserver.service
+
+[Service]
+ExecStart=/opt/k8s/bin/kube-scheduler \
+  --address=127.0.0.1 \
+  --kubeconfig=/root/.kube/kube-scheduler.kubeconfig \
+  --leader-elect=true \
+  --alsologtostderr=true \
+  --logtostderr=false \
+  --log-dir=/var/log/kubernetes \
+  --v=2
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+[root@k8s-master01 .kube]# systemctl start kube-scheduler
+[root@k8s-master01 .kube]# systemctl enable kube-scheduler
+```
+
+- 查看当前的 leader
+```shell script
+[root@k8s-master01 .kube]# kubectl get endpoints kube-scheduler --namespace=kube-system -o yaml
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    control-plane.alpha.kubernetes.io/leader: '{"holderIdentity":"k8s-master01_35573124-e90f-4b33-b85c-2685c7b1d3af","leaseDurationSeconds":15,"acquireTime":"2019-12-25T08:52:06Z","renewTime":"2019-12-25T08:58:55Z","leaderTransitions":0}'
+  creationTimestamp: "2019-12-25T08:52:06Z"
+  name: kube-scheduler
+  namespace: kube-system
+  resourceVersion: "4615"
+  selfLink: /api/v1/namespaces/kube-system/endpoints/kube-scheduler
+  uid: 596eba28-d8ed-4a14-bc5c-2b274dfd8d44
+```
+
 ##### 10.部署 worker 节点之 docker 组件
 ##### 11.部署 worker 节点之 kubelet 组件
 ##### 12.部署 worker 节点之 kube-proxy 组件
