@@ -696,7 +696,7 @@ clusterrolebinding.rbac.authorization.k8s.io/kube-apiserver:kubelet-apis created
 ```
 
 ##### 08.部署 master 节点之 kube-controller-manager 组件
-# 该集群包含 3 个节点，启动后将通过竞争选举机制产生一个 leader 节点，其它节点为阻塞状态。当 leader 节点不可用后，剩余节点将再次进行选举产生新的 leader 节点，从而保证服务的可用性。
+该集群包含 3 个节点，启动后将通过竞争选举机制产生一个 leader 节点，其它节点为阻塞状态。当 leader 节点不可用后，剩余节点将再次进行选举产生新的 leader 节点，从而保证服务的可用性。
 - 创建 kube-controller-manager 证书和私钥
 ```shell script
 [root@k8s-master01 opt]# cd /opt/k8s/cert/
