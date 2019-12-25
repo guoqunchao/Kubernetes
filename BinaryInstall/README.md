@@ -1098,7 +1098,11 @@ KillMode=process
 WantedBy=multi-user.target
 
 
-[root@k8s-node02 flannel]# cat docker subnet.env 
+[root@k8s-node02 flannel]# ll /run/flannel/
+total 8
+-rw-r--r-- 1 root root 174 Dec 25 17:26 docker
+-rw-r--r-- 1 root root  98 Dec 25 17:26 subnet.env
+[root@k8s-node02 flannel]# cat /run/flannel/*
 DOCKER_OPT_BIP="--bip=10.100.14.1/24"
 DOCKER_OPT_IPMASQ="--ip-masq=true"
 DOCKER_OPT_MTU="--mtu=1450"
@@ -1107,6 +1111,7 @@ FLANNEL_NETWORK=10.100.0.0/16
 FLANNEL_SUBNET=10.100.14.1/24
 FLANNEL_MTU=1450
 FLANNEL_IPMASQ=false
+
 ```
 
 
