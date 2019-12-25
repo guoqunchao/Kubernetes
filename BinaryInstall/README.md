@@ -673,6 +673,13 @@ Kubernetes master is running at https://192.168.111.128:8443
 
 To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
 
+[root@k8s-master01 opt]# kubectl get cs
+NAME                 STATUS      MESSAGE                                                                                     ERROR
+controller-manager   Unhealthy   Get http://127.0.0.1:10252/healthz: dial tcp 127.0.0.1:10252: connect: connection refused   
+scheduler            Unhealthy   Get http://127.0.0.1:10251/healthz: dial tcp 127.0.0.1:10251: connect: connection refused   
+etcd-2               Healthy     {"health":"true"}                                                                           
+etcd-0               Healthy     {"health":"true"}                                                                           
+etcd-1               Healthy     {"health":"true"}
 ```
 
 ##### 08.部署 master 节点之 kube-controller-manager 组件
