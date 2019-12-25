@@ -682,7 +682,214 @@ etcd-0               Healthy     {"health":"true"}
 etcd-1               Healthy     {"health":"true"}
 ```
 
+- 检查 kube-apiserver 监听的端口
+```shell script
+[root@k8s-master01 opt]#  ss -nutlp |grep apiserver
+tcp    LISTEN     0      128    192.168.111.128:6443                  *:*                   users:(("kube-apiserver",pid=18823,fd=6))
+```
+
+- 授予 kubernetes 证书访问 kubelet API 的权限
+```shell script
+# 在执行kubectl exec run logs 等命令时，apiserver会转发到kubelet。这里定义RBAC规则，授权apiserver调用kubeletAPI；
+[root@k8s-master01 opt]# kubectl create clusterrolebinding kube-apiserver:kubelet-apis --clusterrole=system:kubelet-api-admin --user kubernetes
+clusterrolebinding.rbac.authorization.k8s.io/kube-apiserver:kubelet-apis created
+```
+
 ##### 08.部署 master 节点之 kube-controller-manager 组件
+# 该集群包含 3 个节点，启动后将通过竞争选举机制产生一个 leader 节点，其它节点为阻塞状态。当 leader 节点不可用后，剩余节点将再次进行选举产生新的 leader 节点，从而保证服务的可用性。
+- 创建 kube-controller-manager 证书和私钥
+```shell script
+[root@k8s-master01 opt]# cd /opt/k8s/cert/
+[root@k8s-master01 opt]# vim kube-controller-manager-csr.json
+{
+    "CN": "system:kube-controller-manager",
+    "key": {
+        "algo": "rsa",
+        "size": 2048
+    },
+    "hosts": [
+        "127.0.0.1",
+        "192.168.111.128",
+        "192.168.111.129",
+        "192.168.111.130"
+    ],
+    "names": [
+        {
+            "C": "CN",
+            "ST": "BeiJing",
+            "L": "BeiJing",
+            "O": "system:kube-controller-manager",
+            "OU": "4Paradigm"
+        }
+    ]
+}
+
+# 注：
+# hosts 列表包含所有 kube-controller-manager 节点 IP；
+# CN 为 system:kube-controller-manager、O 为 system:kube-controller-manager，kubernetes 内置的 ClusterRoleBindings system:kube-controller-manager 赋予kube-controller-manager 工作所需的权限。
+
+```
+
+- 生成证书和私钥
+```shell script
+[root@k8s-master01 cert]# cfssl gencert -ca=/opt/k8s/cert/ca.pem \
+  -ca-key=/opt/k8s/cert/ca-key.pem \
+  -config=/opt/k8s/cert/ca-config.json \
+  -profile=kubernetes kube-controller-manager-csr.json | cfssljson -bare kube-controller-manager
+2019/12/25 16:02:58 [INFO] generate received request
+2019/12/25 16:02:58 [INFO] received CSR
+2019/12/25 16:02:58 [INFO] generating key: rsa-2048
+2019/12/25 16:02:58 [INFO] encoded CSR
+2019/12/25 16:02:58 [INFO] signed certificate with serial number 39641631925030822703938202066387462489322509807
+2019/12/25 16:02:58 [WARNING] This certificate lacks a "hosts" field. This makes it unsuitable for
+websites. For more information see the Baseline Requirements for the Issuance and Management
+of Publicly-Trusted Certificates, v.1.1.6, from the CA/Browser Forum (https://cabforum.org);
+specifically, section 10.2.3 ("Information Requirements").
+
+[root@k8s-master01 cert]# ls kube-controller-manager*
+kube-controller-manager.csr  kube-controller-manager-csr.json  kube-controller-manager-key.pem  kube-controller-manager.pem
+```
+- 创建 kube-controller-manager.kubeconfig 文件
+```shell script
+[root@k8s-master01 cert]# kubectl config set-cluster kubernetes \
+  --certificate-authority=/opt/k8s/cert/ca.pem \
+  --embed-certs=true \
+  --server=https://192.168.111.128:8443 \
+  --kubeconfig=/root/.kube/kube-controller-manager.kubeconfig
+Cluster "kubernetes" set.
+
+[root@k8s-master01 cert]# kubectl config set-credentials system:kube-controller-manager \
+> --client-certificate=/opt/k8s/cert/kube-controller-manager.pem \
+> --client-key=/opt/k8s/cert/kube-controller-manager-key.pem \
+> --embed-certs=true \
+> --kubeconfig=/root/.kube/kube-controller-manager.kubeconfig
+User "system:kube-controller-manager" set.
+
+[root@k8s-master01 cert]# kubectl config set-context system:kube-controller-manager@kubernetes \
+> --cluster=kubernetes \
+> --user=system:kube-controller-manager \
+> --kubeconfig=/root/.kube/kube-controller-manager.kubeconfig
+Context "system:kube-controller-manager@kubernetes" created.
+
+[root@k8s-master01 cert]# kubectl config use-context system:kube-controller-manager@kubernetes --kubeconfig=/root/.kube/kube-controller-manager.kubeconfig
+Switched to context "system:kube-controller-manager@kubernetes".
+```
+- 验证kube-controller-manager.kubeconfig 文件
+```shell script
+[root@k8s-master01 cert]# ls /root/.kube/kube-controller-manager.kubeconfig
+[root@k8s-master01 cert]# kubectl config view --kubeconfig=/root/.kube/kube-controller-manager.kubeconfig
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://192.168.111.128:8443
+  name: kubernetes
+contexts:
+- context:
+    cluster: kubernetes
+    user: system:kube-controller-manager
+  name: system:kube-controller-manager@kubernetes
+current-context: system:kube-controller-manager@kubernetes
+kind: Config
+preferences: {}
+users:
+- name: system:kube-controller-manager
+  user:
+    client-certificate-data: REDACTED
+    client-key-data: REDACTED
+
+```
+
+- 创建和分发 kube-controller-manager systemd unit 文件
+```shell script
+# [root@k8s-master01 cert]# mkdir /opt/controller_manager
+# [root@k8s-master01 cert]# cd /opt/controller_manager
+[root@k8s-master01 controller_manager]# vim /etc/systemd/system/kube-controller-manager.service
+[Unit]
+Description=Kubernetes Controller Manager
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+
+[Service]
+ExecStart=/opt/k8s/bin/kube-controller-manager \
+--port=0 \
+--secure-port=10252 \
+--bind-address=127.0.0.1 \
+#--kubeconfig=/opt/k8s/kube-controller-manager.kubeconfig \
+--kubeconfig=/root/.kube/kube-controller-manager.kubeconfig \
+--service-cluster-ip-range=10.101.0.0/16 \
+--cluster-name=kubernetes \
+--cluster-signing-cert-file=/opt/k8s/cert/ca.pem \
+--cluster-signing-key-file=/opt/k8s/cert/ca-key.pem \
+--experimental-cluster-signing-duration=8760h \
+--root-ca-file=/opt/k8s/cert/ca.pem \
+--service-account-private-key-file=/opt/k8s/cert/ca-key.pem \
+--leader-elect=true \
+--feature-gates=RotateKubeletServerCertificate=true \
+--controllers=*,bootstrapsigner,tokencleaner \
+--horizontal-pod-autoscaler-use-rest-clients=true \
+--horizontal-pod-autoscaler-sync-period=10s \
+--tls-cert-file=/opt/k8s/cert/kube-controller-manager.pem \
+--tls-private-key-file=/opt/k8s/cert/kube-controller-manager-key.pem \
+--use-service-account-credentials=true \
+--alsologtostderr=true \
+--logtostderr=false \
+--log-dir=/var/log/kubernetes \
+--v=2
+Restart=on
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+
+[root@k8s-master01 controller_manager]# systemctl start kube-controller-manager
+[root@k8s-master01 controller_manager]# systemctl enable kube-controller-manager
+Created symlink from /etc/systemd/system/multi-user.target.wants/kube-controller-manager.service to /etc/systemd/system/kube-controller-manager.service.
+
+
+# 注：
+# --port=0：关闭监听 http /metrics 的请求，同时 --address 参数无效，--bind-address 参数有效；
+# --secure-port=10252、--bind-address=0.0.0.0: 在所有网络接口监听 10252 端口的 https /metrics 请求；
+# --kubeconfig：指定 kubeconfig 文件路径，kube-controller-manager 使用它连接和验证 kube-apiserver；
+# --cluster-signing-*-file：签名 TLS Bootstrap 创建的证书；
+# --experimental-cluster-signing-duration：指定 TLS Bootstrap 证书的有效期；
+# --root-ca-file：放置到容器 ServiceAccount 中的 CA 证书，用来对 kube-apiserver 的证书进行校验；
+# --service-account-private-key-file：签名 ServiceAccount 中 Token 的私钥文件，必须和 kube-apiserver 的 --service-account-key-file 指定的公钥文件配对使用；
+# --service-cluster-ip-range ：指定 Service Cluster IP 网段，必须和 kube-apiserver 中的同名参数一致；
+# --leader-elect=true：集群运行模式，启用选举功能；被选为 leader 的节点负责处理工作，其它节点为阻塞状态；
+# --feature-gates=RotateKubeletServerCertificate=true：开启 kublet server 证书的自动更新特性；
+# --controllers=*,bootstrapsigner,tokencleaner：启用的控制器列表，tokencleaner 用于自动清理过期的 Bootstrap token；
+# --horizontal-pod-autoscaler-*：custom metrics 相关参数，支持 autoscaling/v2alpha1；
+# --tls-cert-file、--tls-private-key-file：使用 https 输出 metrics 时使用的 Server 证书和秘钥；
+# --use-service-account-credentials=true:
+# User=k8s：使用 k8s 账户运行；这里使用root
+```
+
+- 启动
+```shell script
+[root@k8s-master03 k8s]# systemctl start kube-controller-manager
+[root@k8s-master03 k8s]# systemctl enable kube-controller-manager
+Created symlink from /etc/systemd/system/multi-user.target.wants/kube-controller-manager.service to /etc/systemd/system/kube-controller-manager.service.
+```
+
+- 查看当前的 leader
+```yaml
+[root@k8s-master01 opt]# kubectl get endpoints kube-controller-manager --namespace=kube-system -o yaml
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    control-plane.alpha.kubernetes.io/leader: '{"holderIdentity":"k8s-master01_89863365-2bd1-4a8f-a454-db7f7f64594b","leaseDurationSeconds":15,"acquireTime":"2019-12-25T08:17:02Z","renewTime":"2019-12-25T08:29:25Z","leaderTransitions":0}'
+  creationTimestamp: "2019-12-25T08:17:02Z"
+  name: kube-controller-manager
+  namespace: kube-system
+  resourceVersion: "1931"
+  selfLink: /api/v1/namespaces/kube-system/endpoints/kube-controller-manager
+  uid: 285fcb7d-983b-4a7f-9c00-ad01ca9b4194
+
+```
+
 ##### 09.部署 master 节点之 kube-scheduler 组件
 ##### 10.部署 worker 节点之 docker 组件
 ##### 11.部署 worker 节点之 kubelet 组件
