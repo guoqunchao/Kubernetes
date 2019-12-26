@@ -1247,7 +1247,7 @@ systemctl start kubelet
 systemctl enable kubelet
 ```
 
-- pprove kubelet CSR 请求
+- approve kubelet CSR 请求
 ```shell script
 [root@k8s-master01 kubelet]# kubectl get csr
 NAME                                                   AGE     REQUESTOR                 CONDITION
@@ -1289,5 +1289,190 @@ yum install kubernetes-cni -y
 ```
 
 ##### 12.部署 worker 节点之 kube-proxy 组件
-##### 13.验证集群功能 完毕！
+- 创建 kube-proxy 证书
+```shell script
+[root@k8s-master01 ~]# cd /opt/k8s/cert/
+[root@k8s-master01 cert]# cat > kube-proxy-csr.json << EOF
+{
+  "CN": "system:kube-proxy",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CN",
+      "ST": "BeiJing",
+      "L": "BeiJing",
+      "O": "k8s",
+      "OU": "4Paradigm"
+    }
+  ]
+}
+EOF
+```
 
+- 生成证书和私钥
+```shell script
+[root@k8s-master01 cert]# cfssl gencert -ca=/opt/k8s/cert/ca.pem \
+> -ca-key=/opt/k8s/cert/ca-key.pem \
+> -config=/opt/k8s/cert/ca-config.json \
+> -profile=kubernetes kube-proxy-csr.json | cfssljson -bare kube-proxy
+2019/12/26 17:29:01 [INFO] generate received request
+2019/12/26 17:29:01 [INFO] received CSR
+2019/12/26 17:29:01 [INFO] generating key: rsa-2048
+2019/12/26 17:29:01 [INFO] encoded CSR
+2019/12/26 17:29:01 [INFO] signed certificate with serial number 386808291963680708497443701295264163068829362594
+2019/12/26 17:29:01 [WARNING] This certificate lacks a "hosts" field. This makes it unsuitable for
+websites. For more information see the Baseline Requirements for the Issuance and Management
+of Publicly-Trusted Certificates, v.1.1.6, from the CA/Browser Forum (https://cabforum.org);
+specifically, section 10.2.3 ("Information Requirements").
+
+[root@k8s-master01 cert]# ls *kube-proxy*
+kube-proxy.csr  kube-proxy-csr.json  kube-proxy-key.pem  kube-proxy.pem
+```
+
+- 创建kubeconfig 文件
+```shell script
+[root@k8s-master01 cert]# kubectl config set-cluster kubernetes \
+> --certificate-authority=/opt/k8s/cert/ca.pem \
+> --embed-certs=true \
+> --server=https://192.168.111.128:8443 \
+> --kubeconfig=/root/.kube/kube-proxy.kubeconfig
+Cluster "kubernetes" set.
+
+[root@k8s-master01 cert]# kubectl config set-credentials kube-proxy \
+> --client-certificate=/opt/k8s/cert/kube-proxy.pem \
+> --client-key=/opt/k8s/cert/kube-proxy-key.pem \
+> --embed-certs=true \
+> --kubeconfig=/root/.kube/kube-proxy.kubeconfig
+User "kube-proxy" set.
+
+[root@k8s-master01 cert]#  kubectl config set-context kube-proxy@kubernetes \
+> --cluster=kubernetes \
+> --user=kube-proxy \
+> --kubeconfig=/root/.kube/kube-proxy.kubeconfig
+Context "kube-proxy@kubernetes" created.
+
+[root@k8s-master01 cert]# kubectl config use-context kube-proxy@kubernetes --kubeconfig=/root/.kube/kube-proxy.kubeconfig
+Switched to context "kube-proxy@kubernetes".
+
+[root@k8s-master01 cert]# kubectl config view --kubeconfig=/root/.kube/kube-proxy.kubeconfig
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://192.168.111.128:8443
+  name: kubernetes
+contexts:
+- context:
+    cluster: kubernetes
+    user: kube-proxy
+  name: kube-proxy@kubernetes
+current-context: kube-proxy@kubernetes
+kind: Config
+preferences: {}
+users:
+- name: kube-proxy
+  user:
+    client-certificate-data: REDACTED
+    client-key-data: REDACTED
+```
+
+- 创建 kube-proxy 配置文件
+```shell script
+[root@k8s-node01 ~]# vim /opt/kube-proxy/kube-proxy.config.yaml
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+bindAddress: 192.168.111.131
+clientConnection:
+  kubeconfig: /root/.kube/kube-proxy.kubeconfig
+clusterCIDR: 10.100.0.0/16
+healthzBindAddress: 192.168.111.131:10256
+hostnameOverride: 192.168.111.131
+kind: KubeProxyConfiguration
+metricsBindAddress: 192.168.111.131:10249
+mode: "ipvs"
+```
+
+- kube-proxy systemd unit 文件
+```shell script
+[root@k8s-node01 ~]# vim /etc/systemd/system/kube-proxy.service
+Unit]
+Description=Kubernetes Kube-Proxy Server
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=network.target
+[Service]
+WorkingDirectory=/opt/lib/kube-proxy
+ExecStart=/opt/k8s/bin/kube-proxy \
+  --config=/opt/kube-proxy/kube-proxy.config.yaml \
+  --logtostderr=true \
+  --v=2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+[Install]
+WantedBy=multi-user.target
+```
+
+##### 13.验证集群功能 完毕！
+```shell script
+[root@k8s-master01 ~]# kubectl get node
+NAME           STATUS   ROLES    AGE     VERSION
+k8s-master01   Ready    <none>   4h37m   v1.17.0
+k8s-master02   Ready    <none>   4h6m    v1.17.0
+k8s-master03   Ready    <none>   4h35m   v1.17.0
+k8s-node01     Ready    <none>   5h48m   v1.17.0
+k8s-node02     Ready    <none>   5h45m   v1.17.0
+
+[root@k8s-master01 ~]# cat tomcat-deployment.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: tomcat-deployment
+spec: 
+  replicas: 1
+  selector:
+    matchLabels:
+      tier: tomcat-deployment
+    matchExpressions:
+    - {key: tier, operator: In, values: [tomcat-deployment]}
+  template:
+    metadata:
+      labels:
+        app: app-demo
+        tier: tomcat-deployment
+    spec:
+      containers:
+      - name: tomcat-deployment
+        image: tomcat
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-service
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    nodePort: 30001
+  selector:
+    tier: tomcat-deployment
+
+
+[root@k8s-master01 ~]# kubectl create -f tomcat-deployment.yaml
+
+[root@k8s-master01 ~]# kubectl get deploy,pod,svc
+NAME                                READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/tomcat-deployment   1/2     2            1           27m
+
+NAME                                     READY   STATUS              RESTARTS   AGE
+pod/tomcat-deployment-699955c64f-lkk27   1/1     Running             0          13m
+pod/tomcat-deployment-699955c64f-nrxcm   1/1     Running             0          13m
+
+NAME                     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
+service/kubernetes       ClusterIP   10.101.0.1      <none>        443/TCP          29h
+service/tomcat-service   NodePort    10.101.121.17   <none>        8080:30001/TCP   13m
+```
