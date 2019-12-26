@@ -1114,9 +1114,180 @@ FLANNEL_IPMASQ=false
 
 ```
 
-
-
-
 ##### 11.部署 worker 节点之 kubelet 组件
+- 部署 kubelet 组件
+kublet 运行在每个 worker 节点上，接收 kube-apiserver 发送的请求，管理 Pod 容器，执行交互式命令，如 exec、run、logs 等。
+kublet 启动时自动向 kube-apiserver 注册节点信息，内置的 cadvisor 统计和监控节点的资源使用情况。
+
+- 创建 kubelet bootstrap kubeconfig 文件
+```shell script
+# 创建 token
+export BOOTSTRAP_TOKEN=$(kubeadm token create \
+--description kubelet-bootstrap-token \
+--groups system:bootstrappers:k8s-node \  #${node_name}
+--kubeconfig ~/.kube/config)
+
+# 设置集群参数
+kubectl config set-cluster kubernetes \
+--certificate-authority=/opt/k8s/cert/ca.pem \
+--embed-certs=true \
+--server=https://192.168.111.128:8443 \
+--kubeconfig=~/.kube/kubelet-bootstrap-k8s-node.kubeconfig  #${node_name}=k8s-node
+
+# 设置客户端认证参数
+kubectl config set-credentials kubelet-bootstrap \
+--token=${BOOTSTRAP_TOKEN} \
+--kubeconfig=~/.kube/kubelet-bootstrap-k8s-node.kubeconfig #${node_name}=k8s-node
+
+# 设置上下文参数
+kubectl config set-context default \
+--cluster=kubernetes \
+--user=kubelet-bootstrap \
+--kubeconfig=~/.kube/kubelet-bootstrap-k8s-node.kubeconfig #${node_name}=k8s-node
+
+# 设置默认上下文
+kubectl config use-context default --kubeconfig=~/.kube/kubelet-bootstrap-k8s-node.kubeconfig #${node_name}=k8s-node
+
+# 查看kubeadm为节点创建的token
+[root@k8s-master01 ~]# kubeadm token list --kubeconfig ~/.kube/config
+TOKEN                     TTL         EXPIRES                     USAGES                   DESCRIPTION                                                EXTRA GROUPS
+69nlp3.lin4q2xizqa2zob9   23h         2019-12-26T20:23:38+08:00   authentication,signing   kubelet-bootstrap-token                                    system:bootstrappers:k8s-node
+
+# kube-apiserver 接收 kubelet 的 bootstrap token 后，将请求的 user 设置为 system:bootstrap:，group 设置为 system:bootstrappers；
+# token 关联的 Secret：
+[root@k8s-master01 ~]# kubectl get secrets -n kube-system
+NAME                                             TYPE                                  DATA   AGE
+attachdetach-controller-token-zg8bj              kubernetes.io/service-account-token   3      4h19m
+bootstrap-signer-token-mvlkg                     kubernetes.io/service-account-token   3      4h19m
+bootstrap-token-69nlp3                           bootstrap.kubernetes.io/token         7      12m
+```
+
+- 创建kubelet 参数配置文件
+```shell script
+mkdir -p /opt/kubelet
+cd /opt/kubelet
+cat kubelet.config.json
+{
+  "kind": "KubeletConfiguration",
+  "apiVersion": "kubelet.config.k8s.io/v1beta1",
+  "authentication": {
+    "x509": {
+      "clientCAFile": "/opt/k8s/cert/ca.pem"
+    },
+    "webhook": {
+      "enabled": true,
+      "cacheTTL": "2m0s"
+    },
+    "anonymous": {
+      "enabled": false
+    }
+  },
+  "authorization": {
+    "mode": "Webhook",
+    "webhook": {
+      "cacheAuthorizedTTL": "5m0s",
+      "cacheUnauthorizedTTL": "30s"
+    }
+  },
+  "address": "##NODE_IP##",
+  "port": 10250,
+  "readOnlyPort": 0,
+  "cgroupDriver": "cgroupfs",
+  "hairpinMode": "promiscuous-bridge",
+  "serializeImagePulls": false,
+  "featureGates": {
+    "RotateKubeletClientCertificate": true,
+    "RotateKubeletServerCertificate": true
+  },
+  "clusterDomain": "cluster.local",
+  "clusterDNS": ["10.90.0.2"]
+}
+```
+
+- 创建kubelet systemd unit 文件
+```shell script
+
+# 注意node节点创建 WorkingDirectory
+vim /opt/kubelet/kubelet.service
+[Unit]
+Description=Kubernetes Kubelet
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/opt/lib/kubelet
+ExecStart=/opt/k8s/bin/kubelet \
+--bootstrap-kubeconfig=/opt/kubelet/kubelet-bootstrap-k8s-node.kubeconfig \
+--cert-dir=/opt/k8s/cert \
+--kubeconfig=/opt/kubelet/kubelet.kubeconfig \
+--config=/opt/kubelet/kubelet.config.json \
+--hostname-override=k8s-node01 \
+--pod-infra-container-image=registry.access.redhat.com/rhel7/pod-infrastructure:latest \
+--alsologtostderr=true \
+--logtostderr=false \
+--log-dir=/opt/log/kubernetes \
+--v=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+- Bootstrap Token Auth 和授予权限
+```shell script
+# 1、kublet 启动时查找配置的 --kubeletconfig 文件是否存在，如果不存在则使用 --bootstrap-kubeconfig 向 kube-apiserver 发送证书签名请求 (CSR)。
+# 2、kube-apiserver 收到 CSR 请求后，对其中的 Token 进行认证（事先使用 kubeadm 创建的 token），认证通过后将请求的 user 设置为 system:bootstrap:，group 设置为 system:bootstrappers，这一过程称为 Bootstrap Token Auth。
+# 3、默认情况下，这个 user 和 group 没有创建 CSR 的权限，kubelet 启动失败，错误日志如下：
+# 、解决办法是：创建一个 clusterrolebinding，将 group system:bootstrappers 和 clusterrole system:node-bootstrapper 绑定：
+[root@k8s-master01 ~]# kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --group=system:bootstrappers
+
+systemctl start kubelet
+systemctl enable kubelet
+```
+
+- pprove kubelet CSR 请求
+```shell script
+[root@k8s-master01 kubelet]# kubectl get csr
+NAME                                                   AGE     REQUESTOR                 CONDITION
+node-csr-ZSAVql90ZKEbnQk5RoOjEx50rVCrXFbvy6hhopRZFHU   12m     system:bootstrap:69nlp3   Pending
+node-csr-hYyIfbMta1RN5rf0hINBPK3NRqRUmqTTiSAnDZMGo64   2m47s   system:bootstrap:69nlp3   Pending
+
+[root@k8s-master01 kubelet]# kubectl certificate approve node-csr-ZSAVql90ZKEbnQk5RoOjEx50rVCrXFbvy6hhopRZFHU
+certificatesigningrequest.certificates.k8s.io/node-csr-ZSAVql90ZKEbnQk5RoOjEx50rVCrXFbvy6hhopRZFHU approved
+
+[root@k8s-master01 kubelet]#  kubectl describe csr node-csr-ZSAVql90ZKEbnQk5RoOjEx50rVCrXFbvy6hhopRZFHU
+Name:               node-csr-ZSAVql90ZKEbnQk5RoOjEx50rVCrXFbvy6hhopRZFHU
+Labels:             <none>
+Annotations:        <none>
+CreationTimestamp:  Thu, 26 Dec 2019 14:37:36 +0800
+Requesting User:    system:bootstrap:69nlp3
+Status:             Approved,Issued
+Subject:
+         Common Name:    system:node:k8s-node01
+         Serial Number:  
+         Organization:   system:nodes
+Events:  <none>
+```
+
+- 问题：failed to find plugin "flannel" in path [/opt/cni/bin] failed to find plugin "portmap" in path [/opt/cni/bin]
+```shell script
+cat > /etc/yum.repos.d/kubernetes.repo <<EOF
+[kubernetes]
+name=Kubernetes
+baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64/
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
+EOF
+
+
+yum clean all
+yum install kubernetes-cni -y
+```
+
 ##### 12.部署 worker 节点之 kube-proxy 组件
 ##### 13.验证集群功能 完毕！
+
