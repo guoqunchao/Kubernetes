@@ -328,3 +328,15 @@ iptables -L -n
 [http://docs.kubernetes.org.cn/459.html](http://docs.kubernetes.org.cn/459.html)  
 [https://kubernetes.io/zh/docs/setup/independent/create-cluster-kubeadm/](https://kubernetes.io/zh/docs/setup/independent/create-cluster-kubeadm/)  
 [https://segmentfault.com/a/1190000018741112](https://segmentfault.com/a/1190000018741112)  
+
+
+
+#### 允许master节点部署pod
+```shell
+kubectl taint nodes --all node-role.kubernetes.io/master-
+kubectl taint nodes master1 node-role.kubernetes.io/master=:NoSchedule #如果不允许调度:
+污点可选参数:
+      NoSchedule: 一定不能被调度
+      PreferNoSchedule: 尽量不要调度
+      NoExecute: 不仅不会调度, 还会驱逐Node上已有的Pod
+```
