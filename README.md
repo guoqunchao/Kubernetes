@@ -340,3 +340,10 @@ kubectl taint nodes master1 node-role.kubernetes.io/master=:NoSchedule #如果�
       PreferNoSchedule: 尽量不要调度
       NoExecute: 不仅不会调度, 还会驱逐Node上已有的Pod
 ```
+
+#### 【kubernetes v1.16.3】failed to get cgroup stats for “/system.slice/docker.service“
+```shell
+原因：kubernetes和docker版本兼容性问题
+vim 编辑 /var/lib/kubelet/kubeadm-flags.env文件添加
+--runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice
+```
