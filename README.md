@@ -331,7 +331,7 @@ iptables -L -n
 
 
 
-#### 允许master节点部署pod
+**21. 允许master节点部署pod**
 ```shell
 kubectl taint nodes --all node-role.kubernetes.io/master-
 kubectl taint nodes master1 node-role.kubernetes.io/master=:NoSchedule #如果不允许调度:
@@ -341,9 +341,56 @@ kubectl taint nodes master1 node-role.kubernetes.io/master=:NoSchedule #如果�
       NoExecute: 不仅不会调度, 还会驱逐Node上已有的Pod
 ```
 
-#### 【kubernetes v1.16.3】failed to get cgroup stats for “/system.slice/docker.service“
+**22.【kubernetes v1.16.3】failed to get cgroup stats for "/system.slice/docker.service"**
 ```shell
 原因：kubernetes和docker版本兼容性问题
 vim 编辑 /var/lib/kubelet/kubeadm-flags.env文件添加
 --runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice
+```
+
+**23. 私有化部署笔记**
+```shell
+# 配置环境
+setenforce 0
+sed -i '/^SELINUX=/ s/enforcing/disabled/g' /etc/selinux/config 
+systemctl stop firewalld
+systemctl disable firewalld
+swapoff -a
+cat <<EOF >  /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF\
+sysctl --system
+ssh-keygen
+ssh-copy-id -i ~/.ssh/id_rsa 20.20.0.12
+
+# 安装docker
+rpm -Uvh --force --nodeps *.rpm
+systemctl start docker && systemctl enable docker.service && systemctl status docker
+
+
+# 安装kube组件
+yum --showduplicates list kubelet
+yum -y install yum-utils # 安装yum-utils
+repotrack kubelet-1.16.3-0 # 下载全量依赖包
+repotrack kubeadm-1.16.3-0
+repotrack kubectl-1.16.3-0
+rpm -Uvh --force --nodeps *.rpm
+systemctl start kubelet && systemctl enable kubelet
+
+# 导入本地镜像
+docker load -i images-kubernetes.tar
+
+# 初始化集群
+kubeadm init --apiserver-advertise-address=192.168.12.100 \
+--image-repository registry.aliyuncs.com/google_containers \
+--kubernetes-version v1.16.3 \
+--service-cidr=10.1.0.0/16 --pod-network-cidr=10.2.0.0/16 \
+--control-plane-endpoint "192.168.12.100:6443" \
+--upload-certs
+
+# 部署Flannel和NginxIngressController组件
+kubectl apply -f kube-flannel.yml 
+kubectl apply -f nginx-ingress-controller.yml
 ```
